@@ -1,20 +1,66 @@
+;;; memmet.el --- Minimal Emmet Mode for Emacs -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2025 Kevin Borling <kborling@protonmail.com>
+
+;; Author: Kevin Borling
+;; Created: April 11, 2025
+;; Version: 0.0.1
+;; Keywords: emmet, html
+;; License: MIT
+;; URL: https://github.com/kborling/memmet-mode
+;; Homepage: https://github.com/kborling/memmet-mode
+;; Filename: memmet.el
+;; Package-Requires: ((emacs "24.1"))
+
+;; Permission is hereby granted, free of charge, to any person obtaining a copy
+;; of this software and associated documentation files (the "Software"), to deal
+;; in the Software without restriction, including without limitation the rights
+;; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+;; copies of the Software, and to permit persons to whom the Software is
+;; furnished to do so, subject to the following conditions:
+
+;; The above copyright notice and this permission notice shall be included in all
+;; copies or substantial portions of the Software.
+
+;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+;; AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+;; SOFTWARE.
+
+;;; Commentary:
+
+;; `memmet-mode` is a minimal, fast, and Emacs-native implementation of
+;; [Emmet](https://emmet.io/) for HTML editing. It supports a small but powerful
+;; subset of Emmet syntax, enabling quick HTML tag generation.
+
+;; Usage:
+
+;; Type a minimal Emmet expression like `div#app>ul>li*3`,
+;; place point at the end, and run `memmet-expand`
+
+;;; Code:
 (defun memmet-expand ()
-  "Expand a minimal Emmet expression at point into HTML."
+  "Expand Emmet-style HTML at point with indentation."
   (interactive)
   (let* ((spec (memmet-extract-spec))
-         (start (progn (skip-chars-backward "a-zA-Z0-9.#>*+") (point)))
-         (end   (progn (skip-chars-forward "a-zA-Z0-9.#>*+") (point))))
+         (start (progn (skip-chars-backward "a-zA-Z0-9.#>*+-") (point)))
+         (end   (progn (skip-chars-forward "a-zA-Z0-9.#>*+-") (point)))
+         (raw-html (memmet-parse spec))
+         (pretty-html (memmet-pretty-format-html raw-html)))
     (delete-region start end)
-    (insert (memmet-parse spec))))
+    (insert pretty-html)))
 
 (defun memmet-extract-spec ()
   "Return the Emmet expression around point."
-  (let ((start (progn (skip-chars-backward "a-zA-Z0-9.#>*+") (point)))
-        (end   (progn (skip-chars-forward "a-zA-Z0-9.#>*+") (point))))
+  (let ((start (progn (skip-chars-backward "a-zA-Z0-9.#>*+-") (point)))
+        (end   (progn (skip-chars-forward "a-zA-Z0-9.#>*+-") (point))))
     (buffer-substring-no-properties start end)))
 
 (defun memmet-parse (expr)
-  "Parse a minimal Emmet expression into HTML."
+  "Parse an expression EXPR into HTML."
   (if (string-match-p "+" expr)
       ;; Handle siblings
       (mapconcat #'memmet-parse (split-string expr "+" t) "")
@@ -36,7 +82,8 @@
     (memmet-tag-from-spec expr)))
 
 (defun memmet-tag-from-spec (spec)
-  "Generate a tag from Emmet-style spec like `div.class#id`. Defaults to div."
+  "Generate a tag from Emmet-style SPEC like `div.class` or `ul>li*5`. Defaults to div
+   if only #id or .class is provided."
   (let ((tag "div")
         (class nil)
         (id nil))
@@ -47,7 +94,8 @@
     (when (string-match "#\\([a-zA-Z0-9-]+\\)" spec)
       (setq id (match-string 1 spec)))
     ;; Extract tag name if present before . or #
-    (when (string-match "\\`\\([a-zA-Z][a-zA-Z0-9-]*\\)" spec)
+    ;; (when (string-match "\\`\\([a-zA-Z][a-zA-Z0-9-]*\\)" spec)
+    (when (string-match "\\([a-zA-Z0-9-]+\\)" spec)
       (setq tag (match-string 1 spec)))
 
     (unless tag (setq tag "div"))
@@ -66,3 +114,42 @@
        (concat inner "</" (match-string 1 outer) ">")
        outer)
     outer))
+
+(defun memmet-indent-lines (lines)
+  "Indent LINES of HTML according to tag nesting."
+  (let ((indent 0)
+        (output '()))
+    (dolist (line lines)
+      (let ((trimmed (string-trim line)))
+        (cond
+         ((string-match-p "\\`</" trimmed)
+          (setq indent (max 0 (- indent 2))))
+         (t nil))
+        (push (concat (make-string indent ?\s) trimmed) output)
+        (when (and (not (string-match-p "/>$\\|</" trimmed))
+                   (string-match-p "<[^/!][^>]*>$" trimmed))
+          (setq indent (+ indent 2)))))
+    (nreverse output)))
+
+(defun memmet-pretty-format-html (raw-html)
+  "Format RAW-HTML string into indented HTML if it contains nesting."
+  (if (not (string-match "></[a-zA-Z]" raw-html))
+      raw-html  ;; No nesting — keep it one line
+    (let* ((lines (split-string raw-html "><"))
+           (lines (cl-mapcar (lambda (s i)
+                               (cond
+                                ((= i 0) (concat s ">"))
+                                ((= i (1- (length lines))) (concat "<" s))
+                                (t (concat "<" s ">"))))
+                             lines
+                             (number-sequence 0 (1- (length lines)))))
+           (indented-lines (memmet-indent-lines lines)))
+      (string-join indented-lines "\n"))))
+
+;;;###autoload
+(define-minor-mode memmet-mode
+  "Minor mode for minimal emmet."
+  :lighter "Memmet")
+
+(provide 'memmet-mode)
+;;; memmet.el ends here
