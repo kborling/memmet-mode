@@ -1,4 +1,4 @@
-;;; memmet.el --- Minimal Emmet Mode for Emacs -*- lexical-binding: t; -*-
+;;; memmet-mode.el --- Minimal Emmet Mode for Emacs -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2025 Kevin Borling <kborling@protonmail.com>
 
@@ -43,15 +43,20 @@
 
 ;;; Code:
 (defun memmet-expand ()
-  "Expand Emmet-style HTML at point with indentation."
+  "Expand Emmet-style HTML at point with optional pretty-print and cursor placement."
   (interactive)
   (let* ((spec (memmet-extract-spec))
          (start (progn (skip-chars-backward "a-zA-Z0-9.#>*+-") (point)))
          (end   (progn (skip-chars-forward "a-zA-Z0-9.#>*+-") (point)))
          (raw-html (memmet-parse spec))
-         (pretty-html (memmet-pretty-format-html raw-html)))
+         (pretty-html (if (string-match-p ">" spec)
+                          (memmet-pretty-format-html raw-html)
+                        raw-html)))
     (delete-region start end)
-    (insert pretty-html)))
+    (insert pretty-html)
+    ;; Move point inside the first tag
+    (when (re-search-backward "<[^/][^>]*>" start t)
+      (goto-char (match-end 0)))))
 
 (defun memmet-extract-spec ()
   "Return the Emmet expression around point."
@@ -152,4 +157,4 @@
   :lighter "Memmet")
 
 (provide 'memmet-mode)
-;;; memmet.el ends here
+;;; memmet-mode.el ends here
