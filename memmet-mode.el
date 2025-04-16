@@ -121,19 +121,39 @@
     outer))
 
 (defun memmet-indent-lines (lines)
-  "Indent LINES of HTML according to tag nesting."
+  "Indent LINES of HTML according to nesting, skipping tags with no children."
   (let ((indent 0)
-        (output '()))
-    (dolist (line lines)
-      (let ((trimmed (string-trim line)))
-        (cond
-         ((string-match-p "\\`</" trimmed)
-          (setq indent (max 0 (- indent 2))))
-         (t nil))
+        (output '())
+        (stack '())
+        (i 0)
+        (n (length lines)))
+    (while (< i n)
+      (let* ((line (nth i lines))
+             (trimmed (string-trim line))
+             (next (if (< (1+ i) n) (string-trim (nth (1+ i) lines)) nil)))
+
+        ;; Handle closing tag
+        (when (string-match "\\`</\\([^>]+\\)>" trimmed)
+          (setq indent (max 0 (- indent 2)))
+          (pop stack))
+
+        ;; Add line with current indent
         (push (concat (make-string indent ?\s) trimmed) output)
-        (when (and (not (string-match-p "/>$\\|</" trimmed))
-                   (string-match-p "<[^/!][^>]*>$" trimmed))
-          (setq indent (+ indent 2)))))
+
+        ;; Handle opening tag
+        (when (string-match "\\`<\\([^/! >]+\\)[^>]*>\\'" trimmed)
+          (let ((tag-name (match-string 1 trimmed)))
+            ;; Check if there's a closing tag on the next line
+            (if (and next (string-match (format "\\`</%s>" tag-name) next))
+                ;; Inline tag with its closing pair — overwrite previous output
+                (let ((inline (concat trimmed next)))
+                  (pop output)
+                  (push (concat (make-string indent ?\s) inline) output)
+                  (setq i (1+ i))) ;; Skip the next line
+              ;; Otherwise it's a parent — indent
+              (setq indent (+ indent 2))
+              (push tag-name stack)))))
+      (setq i (1+ i)))
     (nreverse output)))
 
 (defun memmet-pretty-format-html (raw-html)
